@@ -8,7 +8,7 @@ skip-lint = false
 
 [programs.localnet]
 vault         = "CsSfsxZcni7DTeLvxTvzbFsLa3PdvyQCKmakzmXeM2fz"
-weighted_pool = "DD3HQQHjNnAKqq9eX7RyNW84hnRyBMrzsoc8AxkuvNzZ"
+weighted_pool = "WPoo1QeY5T2r8j6YfGLwRoTSesFiNUFDXL9uBebzh1e"
 
 [registry]
 url = "https://api.apr.dev"

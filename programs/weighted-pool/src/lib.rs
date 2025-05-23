@@ -237,19 +237,25 @@ pub struct InitializePool<'info> {
     /// CHECK: Verified in the Vault program.
     pub vault: AccountInfo<'info>,
 
-    /// CHECK: SPL-Token mint that represents the pool’s LP/BPT.
+    /// CHECK: SPL‐Token mint that represents the pool’s LP/BPT.
     #[account(mut)]
     pub lp_mint: AccountInfo<'info>,
 
-    /// CHECK: PDA (seeds = ["lp-mint-authority", pool.key()], bump)
-    ///        used as the mint authority for `lp_mint`.
+    /// CHECK: PDA (seeds = ["lp-mint-authority", pool.key()], bump).
     #[account(
         seeds = [b"lp-mint-authority", pool.key().as_ref()],
         bump
     )]
     pub lp_mint_authority: AccountInfo<'info>,
 
-    #[account(init, payer = payer, space = 8 + Pool::INIT_SPACE)]
+    /// The Pool state PDA itself!  Derive & sign it via seeds+bump:
+    #[account(
+        init,
+        seeds = [b"pool-state", vault.key().as_ref()],
+        bump,
+        payer = payer,
+        space = 8 + Pool::INIT_SPACE
+    )]
     pub pool: Account<'info, Pool>,
 
     pub system_program: Program<'info, System>,
