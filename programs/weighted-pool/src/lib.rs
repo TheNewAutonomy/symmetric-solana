@@ -1,11 +1,11 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::program_pack::Pack;
 use anchor_spl::token::{self, Burn, MintTo, Token, Transfer};
 use math::{fixed, weighted_math, U256};
 use spl_token::state::Account as SplAccount;
-use anchor_lang::solana_program::program_pack::Pack;
 
 // ---------------------------------------------------------------------
-// Program ID (change when you deploy a new one)
+// Program ID
 // ---------------------------------------------------------------------
 declare_id!("WPoo1QeY5T2r8j6YfGLwRoTSesFiNUFDXL9uBebzh1e");
 
@@ -21,7 +21,6 @@ pub mod weighted_pool {
         weights: Vec<u128>,
         swap_fee: u64,
     ) -> Result<()> {
-        // One weight per vault token PDA handed in via remaining accounts
         require!(
             weights.len() == ctx.remaining_accounts.len(),
             ErrorCode::LengthMismatch
@@ -53,7 +52,7 @@ pub mod weighted_pool {
         );
         require!(amounts_in.len() == n, ErrorCode::LengthMismatch);
 
-        /* -------- 1. read vault balances -------- */
+        // 1. read vault balances
         let mut balances_fp = Vec::with_capacity(n);
         for i in 0..n {
             let vault_ai = &ctx.remaining_accounts[i * 2 + 1];
@@ -62,12 +61,11 @@ pub mod weighted_pool {
             balances_fp.push(U256::from(acct.amount) * fixed::ONE);
         }
 
-        /* -------- 2. maths -------- */
+        // 2. maths
         let weights_fp: Vec<U256> =
             pool.weights.iter().map(|w| U256::from(*w)).collect();
         let amounts_fp: Vec<U256> =
             amounts_in.iter().map(|a| U256::from(*a) * fixed::ONE).collect();
-
         let bpt_out_fp = weighted_math::calc_bpt_out_given_exact_tokens_in(
             &balances_fp,
             &weights_fp,
@@ -78,36 +76,31 @@ pub mod weighted_pool {
         require!(bpt_out_fp > U256::zero(), ErrorCode::MathUnderflow);
         let bpt_out = (bpt_out_fp / fixed::ONE).as_u64();
 
-        /* -------- 3. CPI transfers (user → vault) -------- */
+        // 3. CPI transfers (user → vault)
         let token_prog = ctx.accounts.token_program.to_account_info();
         let user_auth  = ctx.accounts.user.to_account_info();
         for i in 0..n {
-            let from_ai = ctx.remaining_accounts[i * 2].clone();
-            let to_ai   = ctx.remaining_accounts[i * 2 + 1].clone();
-            let cpi = Transfer {
-                from: from_ai,
-                to:   to_ai,
+            let cpi_accounts = Transfer {
+                from:      ctx.remaining_accounts[i * 2    ].clone(),
+                to:        ctx.remaining_accounts[i * 2 + 1].clone(),
                 authority: user_auth.clone(),
             };
             token::transfer(
-                CpiContext::new(token_prog.clone(), cpi),
+                CpiContext::new(token_prog.clone(), cpi_accounts),
                 amounts_in[i],
             )?;
         }
 
-        /* -------- 4. mint BPT -------- */
-        let bump         = ctx.bumps.lp_mint_authority;
-        let pool_key     = ctx.accounts.pool.key();
-        let bump_arr     = [bump];                                         // lives long enough
+        // 4. mint BPT
+        let bump             = ctx.bumps.lp_mint_authority;
+        let pool_key         = ctx.accounts.pool.key();
+        let bump_arr         = [bump];
         let seed_slice: &[&[u8]] = &[
             b"lp-mint-authority",
             pool_key.as_ref(),
             &bump_arr,
         ];
-        // slice-of-slices (&[&[&[u8]]])
-        let signer_seeds_arr: [&[&[u8]]; 1] = [seed_slice];
-        let signer_seeds                    = &signer_seeds_arr[..];
-
+        let signer_seeds = &[seed_slice];
         let mint_ctx = CpiContext::new_with_signer(
             token_prog.clone(),
             MintTo {
@@ -119,7 +112,7 @@ pub mod weighted_pool {
         );
         token::mint_to(mint_ctx, bpt_out)?;
 
-        /* -------- 5. bookkeeping -------- */
+        // 5. bookkeeping
         ctx.accounts.pool.total_bpt = ctx
             .accounts
             .pool
@@ -148,7 +141,7 @@ pub mod weighted_pool {
             ErrorCode::MathUnderflow
         );
 
-        /* -------- 1. balances -------- */
+        // 1. balances
         let mut balances_fp = Vec::with_capacity(n);
         for i in 0..n {
             let vault_ai = &ctx.remaining_accounts[i * 2 + 1];
@@ -157,11 +150,11 @@ pub mod weighted_pool {
             balances_fp.push(U256::from(acct.amount) * fixed::ONE);
         }
 
-        /* -------- 2. maths -------- */
-        let mut tokens_out = Vec::with_capacity(n);
-        let bpt_in_fp    = U256::from(bpt_in) * fixed::ONE;
-        let total_bpt_fp = U256::from(pool.total_bpt) * fixed::ONE;
-        let fee_fp       = U256::from(pool.swap_fee);
+        // 2. maths
+        let mut tokens_out  = Vec::with_capacity(n);
+        let bpt_in_fp       = U256::from(bpt_in) * fixed::ONE;
+        let total_bpt_fp    = U256::from(pool.total_bpt) * fixed::ONE;
+        let fee_fp          = U256::from(pool.swap_fee);
         for i in 0..n {
             let out_fp = weighted_math::calc_token_out_given_exact_bpt_in(
                 balances_fp[i],
@@ -173,7 +166,7 @@ pub mod weighted_pool {
             tokens_out.push((out_fp / fixed::ONE).as_u64());
         }
 
-        /* -------- 3. burn BPT -------- */
+        // 3. burn BPT
         let token_prog = ctx.accounts.token_program.to_account_info();
         let burn_ctx = CpiContext::new(
             token_prog.clone(),
@@ -185,37 +178,33 @@ pub mod weighted_pool {
         );
         token::burn(burn_ctx, bpt_in)?;
 
-        /* -------- 4. vault → user transfers -------- */
-        let bump         = ctx.bumps.lp_mint_authority;
-        let pool_key     = ctx.accounts.pool.key();
-        let bump_arr     = [bump];
+        // 4. vault → user transfers
+        let bump      = ctx.bumps.lp_mint_authority;
+        let pool_key  = ctx.accounts.pool.key();
+        let bump_arr  = [bump];
         let seed_slice: &[&[u8]] = &[
             b"lp-mint-authority",
             pool_key.as_ref(),
             &bump_arr,
         ];
-        let signer_seeds_arr: [&[&[u8]]; 1] = [seed_slice];
-        let signer_seeds                    = &signer_seeds_arr[..];
-
+        let signer_seeds = &[seed_slice];
         for i in 0..n {
-            let vault_ai = ctx.remaining_accounts[i * 2 + 1].clone();
-            let user_ai  = ctx.remaining_accounts[i * 2].clone();
-            let cpi = Transfer {
-                from:      vault_ai,
-                to:        user_ai,
+            let cpi_accounts = Transfer {
+                from:      ctx.remaining_accounts[i * 2 + 1].clone(),
+                to:        ctx.remaining_accounts[i * 2    ].clone(),
                 authority: ctx.accounts.lp_mint_authority.clone(),
             };
             token::transfer(
                 CpiContext::new_with_signer(
                     token_prog.clone(),
-                    cpi,
+                    cpi_accounts,
                     signer_seeds,
                 ),
                 tokens_out[i],
             )?;
         }
 
-        /* -------- 5. bookkeeping -------- */
+        // 5. bookkeeping
         ctx.accounts.pool.total_bpt = ctx
             .accounts
             .pool
@@ -224,37 +213,109 @@ pub mod weighted_pool {
             .ok_or(ErrorCode::MathUnderflow)?;
         Ok(())
     }
+
+    /* ---------------------------------------------------------------
+       Swap – exact in → out across two tokens
+    ---------------------------------------------------------------- */
+    pub fn swap_exact_token_in_for_token_out<'info>(
+        ctx: Context<'_, '_, '_, 'info, SwapContext<'info>>,
+        amount_in: u64,
+        minimum_amount_out: u64,
+    ) -> Result<()> {
+        // 1. read vault balances
+        let balance_in_fp  = {
+            let data = ctx.accounts.vault_in.try_borrow_data()?;
+            U256::from(SplAccount::unpack_from_slice(&data)?.amount) * fixed::ONE
+        };
+        let balance_out_fp = {
+            let data = ctx.accounts.vault_out.try_borrow_data()?;
+            U256::from(SplAccount::unpack_from_slice(&data)?.amount) * fixed::ONE
+        };
+
+        // 2. maths: how much out?
+        let fee_fp      = U256::from(ctx.accounts.pool.swap_fee);
+        let weights     = &ctx.accounts.pool.weights;
+        // assume vaultes stored in same order as weights: 0 = in, 1 = out
+        let weight_in_fp  = U256::from(weights[0]);
+        let weight_out_fp = U256::from(weights[1]);
+
+        let amount_in_fp  = U256::from(amount_in) * fixed::ONE;
+        let out_fp = weighted_math::calc_out_given_in(
+            balance_in_fp,
+            balance_out_fp,
+            weight_in_fp,
+            weight_out_fp,
+            amount_in_fp,
+            fee_fp,
+        );
+        let amount_out = (out_fp / fixed::ONE).as_u64();
+        require!(
+            amount_out >= minimum_amount_out,
+            ErrorCode::MathUnderflow
+        );
+
+        // 3. transfer in (user → vault)
+        let token_prog = ctx.accounts.token_program.to_account_info();
+        let cpi_in = Transfer {
+            from:      ctx.accounts.user_token_account_in.clone(),
+            to:        ctx.accounts.vault_in.clone(),
+            authority: ctx.accounts.user_authority.to_account_info(),
+        };
+        token::transfer(CpiContext::new(token_prog.clone(), cpi_in), amount_in)?;
+
+        // 4. transfer out (vault → user)
+        let bump      = ctx.bumps.lp_mint_authority;
+        let pool_key  = ctx.accounts.pool.key();
+        let bump_arr  = [bump];
+        let seed_slice: &[&[u8]] = &[
+            b"lp-mint-authority",
+            pool_key.as_ref(),
+            &bump_arr,
+        ];
+        let signer_seeds = &[seed_slice];
+        let cpi_out = Transfer {
+            from:      ctx.accounts.vault_out.clone(),
+            to:        ctx.accounts.user_token_account_out.clone(),
+            authority: ctx.accounts.lp_mint_authority.clone(),
+        };
+        token::transfer(
+            CpiContext::new_with_signer(token_prog, cpi_out, signer_seeds),
+            amount_out,
+        )?;
+
+        Ok(())
+    }
 }
 
 /* ------------------------------------------------------------------
-   Accounts
+   Accounts: initialize & pool contexts
 ------------------------------------------------------------------ */
 #[derive(Accounts)]
 pub struct InitializePool<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// CHECK: Verified in the Vault program.
+    /// CHECK: Verified in Vault program
     pub vault: AccountInfo<'info>,
 
-    /// CHECK: SPL‐Token mint that represents the pool’s LP/BPT.
+    /// CHECK: SPL-Token mint for LP/BPT
     #[account(mut)]
     pub lp_mint: AccountInfo<'info>,
 
-    /// CHECK: PDA (seeds = ["lp-mint-authority", pool.key()], bump).
+    /// CHECK: PDA (["lp-mint-authority", pool.key()], bump)
     #[account(
         seeds = [b"lp-mint-authority", pool.key().as_ref()],
         bump
     )]
     pub lp_mint_authority: AccountInfo<'info>,
 
-    /// The Pool state PDA itself!  Derive & sign it via seeds+bump:
+    /// Pool state PDA
     #[account(
         init,
-        seeds = [b"pool-state", vault.key().as_ref()],
+        seeds  = [b"pool-state", vault.key().as_ref()],
         bump,
-        payer = payer,
-        space = 8 + Pool::INIT_SPACE
+        payer  = payer,
+        space  = 8 + Pool::INIT_SPACE
     )]
     pub pool: Account<'info, Pool>,
 
@@ -267,11 +328,11 @@ pub struct PoolContext<'info> {
     #[account(mut)]
     pub pool: Account<'info, Pool>,
 
-    /// CHECK: Same LP mint as above.
+    /// CHECK: Same LP mint as above
     #[account(mut)]
     pub lp_mint: AccountInfo<'info>,
 
-    /// CHECK: PDA mint authority (same seeds as above).
+    /// CHECK: PDA mint authority
     #[account(
         seeds = [b"lp-mint-authority", pool.key().as_ref()],
         bump
@@ -281,17 +342,54 @@ pub struct PoolContext<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
 
-    /// CHECK: User’s LP token account.
+    /// CHECK: User’s LP token account
     #[account(mut)]
     pub user_lp_account: AccountInfo<'info>,
 
     pub token_program: Program<'info, Token>,
 
-    // remaining accounts: [user_tok0, vault_tok0, …]
+    // then: [user_tok0, vault_tok0, …]
 }
 
 /* ------------------------------------------------------------------
-   State
+   Accounts: swap context
+------------------------------------------------------------------ */
+#[derive(Accounts)]
+pub struct SwapContext<'info> {
+    #[account(mut)]
+    pub pool: Account<'info, Pool>,
+
+    /// CHECK: vault for the “in” token
+    #[account(mut)]
+    pub vault_in: AccountInfo<'info>,
+
+    /// CHECK: vault for the “out” token
+    #[account(mut)]
+    pub vault_out: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub user_authority: Signer<'info>,
+
+    /// CHECK: user’s token account for the “in” mint
+    #[account(mut)]
+    pub user_token_account_in: AccountInfo<'info>,
+
+    /// CHECK: user’s token account for the “out” mint
+    #[account(mut)]
+    pub user_token_account_out: AccountInfo<'info>,
+
+    /// CHECK: same PDA mint authority as above
+    #[account(
+        seeds = [b"lp-mint-authority", pool.key().as_ref()],
+        bump
+    )]
+    pub lp_mint_authority: AccountInfo<'info>,
+
+    pub token_program: Program<'info, Token>,
+}
+
+/* ------------------------------------------------------------------
+   State & Errors
 ------------------------------------------------------------------ */
 #[account]
 pub struct Pool {
@@ -302,13 +400,9 @@ pub struct Pool {
     pub total_bpt: u64,
 }
 impl Pool {
-    // 32 + 32 + 4 + 16*10 + 8 + 8 = 252
     pub const INIT_SPACE: usize = 252;
 }
 
-/* ------------------------------------------------------------------
-   Errors
------------------------------------------------------------------- */
 #[error_code]
 pub enum ErrorCode {
     #[msg("Vector length mismatch")]
