@@ -80,29 +80,29 @@ describe("weighted-pool", () => {
 
     // 4. Call our initialize_pool instruction
     await weightedProgram.methods
-      .initializePool(
-        [new anchor.BN(1_000_000)], // weights
-        new anchor.BN(0)            // swap_fee
-      )
-      .accounts({
-        vault:           vaultState,
-        pool:            poolState,
-        lpMint:          lpMintKp.publicKey,
-        lpMintAuthority: lpMintAuth,          // <— PDA here
-        payer:           provider.wallet.publicKey,
-        tokenProgram:    TOKEN_PROGRAM_ID,
-        systemProgram:   anchor.web3.SystemProgram.programId,
-      })
-      // still need one dummy remaining account for weights.len == 1
-      .remainingAccounts([
-        {
-          pubkey:     provider.wallet.publicKey,
-          isWritable: false,
-          isSigner:   false,
-        },
-      ])
-      // <— **NO** .signers([…])  
-      .rpc();
+    .initializePool(
+      [new anchor.BN(1_000_000)], // weights
+      new anchor.BN(0)            // swap_fee
+    )
+    .accounts({
+      vaultState:    vaultState,                      // ← rename from “vault”
+      vaultProgram:  vaultProgram.programId,          // ← must pass the CPI‐target program
+      pool:          poolState,
+      lpMint:        lpMintKp.publicKey,
+      lpMintAuthority: lpMintAuth,
+      payer:         provider.wallet.publicKey,
+      tokenProgram:  TOKEN_PROGRAM_ID,
+      systemProgram: anchor.web3.SystemProgram.programId,
+    })
+    .remainingAccounts([
+      {
+        pubkey:     provider.wallet.publicKey,
+        isWritable: false,
+        isSigner:   false,
+      },
+    ])
+    .rpc();
+
 
     console.log("✅ weighted-pool initialised");
     console.log("   vault_state  :", vaultState.toBase58());

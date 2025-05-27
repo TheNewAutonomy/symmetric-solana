@@ -22,3 +22,4 @@ common      = { path = "../../common" }
 math        = { path = "../../math" }
 anchor-spl = { version = "0.31.1", features = ["token"] }
 spl-token = { version = "7.0.0", features = ["no-entrypoint"] }
+vault = { path = "../vault", features = ["cpi"] }

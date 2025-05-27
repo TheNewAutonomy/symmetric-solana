@@ -2849,6 +2849,7 @@ dependencies = [
  "common",
  "math",
  "spl-token",
+ "vault",
 ]
 
 [[package]]
